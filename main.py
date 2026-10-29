@@ -1,5 +1,6 @@
 from configs import get_db_env
 from database import Database
+from schema_inspector import SchemaInspector
 
 def main():
   configs = get_db_env()
@@ -33,6 +34,13 @@ def main():
   db.execute(insert_query, insert_values)
   results = db.execute(select_query)
   print(results)
+
+  # --------- schema inspector testing ---------
+  inspector = SchemaInspector(db)
+  print(inspector.get_tables())
+  print(inspector.get_columns("test"))
+  print(inspector.get_values("test", "words"))
+  # --------------------------------------------
 
   return
 
