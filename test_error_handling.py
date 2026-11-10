@@ -1,4 +1,4 @@
-"""Run with: python -m unittest discover -s tests -v"""
+"""Run with: python -m unittest test_error_handling -v"""
 
 import json
 import sys
@@ -62,25 +62,25 @@ class ErrorHandlerTests(unittest.TestCase):
     def test_write_json(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "error_result.json"
-            save_result(classify_error("SELECT * FROM nope;", FakePsycopgError("42P01", "missing")), path)
+            save_result(classify_error("SELECT * FROM nope;", FakePsycopgError("42P01", "missing")), str(path))
             self.assertEqual(json.loads(path.read_text())["error_type"], "UNDEFINED_TABLE")
 
     def test_integrated_query_outcomes(self):
         # Stub psycopg for offline tests; real integration uses the installed package.
         fake_psycopg = types.ModuleType("psycopg")
-        fake_psycopg.Error = FakePsycopgError
+        setattr(fake_psycopg, "Error", FakePsycopgError)
         with patch.dict(sys.modules, {"psycopg": fake_psycopg}), tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "error_result.json"
-            report = inspect_query(FakeDb(result=[]), "SELECT * FROM t;", output_path=path)
+            report = inspect_query(FakeDb(result=[]), "SELECT * FROM t;", output_path=str(path))
             self.assertEqual(report["status"], "EMPTY_RESULT")
             self.assertEqual(json.loads(path.read_text())["status"], "EMPTY_RESULT")
 
-            report = inspect_query(FakeDb(result=[(1,)]), "SELECT * FROM t;", output_path=path)
+            report = inspect_query(FakeDb(result=[(1,)]), "SELECT * FROM t;", output_path=str(path))
             self.assertEqual(report["status"], "SUCCESS")
             self.assertEqual(report["row_count"], 1)
 
             error = FakePsycopgError("42703", 'column "abc" does not exist', "8")
-            report = inspect_query(FakeDb(error=error), "SELECT abc FROM t;", output_path=path)
+            report = inspect_query(FakeDb(error=error), "SELECT abc FROM t;", output_path=str(path))
             self.assertEqual(report["status"], "ERROR")
             self.assertEqual(json.loads(path.read_text())["error_type"], "UNDEFINED_COLUMN")
 
