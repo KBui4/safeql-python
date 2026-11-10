@@ -1,5 +1,6 @@
 from configs import get_db_env
 from database import Database
+from error_handler import inspect_query
 
 def main():
   configs = get_db_env()
@@ -33,6 +34,12 @@ def main():
   db.execute(insert_query, insert_values)
   results = db.execute(select_query)
   print(results)
+
+  # --------- error handling testing -----------
+  bad_query = "SELECT wrong_column FROM test;"
+  report = inspect_query(db, bad_query)
+  print(report)
+  # --------------------------------------------
 
   return
 
