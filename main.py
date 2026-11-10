@@ -40,6 +40,7 @@ def main():
   bad_query = "SELECT wrong_column FROM test;"
   report = inspect_query(db, bad_query)
   print(report)
+  
   # --------- schema inspector testing ---------
   inspector = SchemaInspector(db)
   print(inspector.get_tables())

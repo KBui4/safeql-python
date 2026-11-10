@@ -19,7 +19,7 @@ class ErrorType(str, Enum):
 # these are the main erorors SafeQL tried to correct
 # the error codes are the SQLSTATE codes postgres assigns
 
-ERROR_CODES = {
+ERROR_CODES: dict[str, ErrorType] = {
     "42P01": ErrorType.UNDEFINED_TABLE,
     "42703": ErrorType.UNDEFINED_COLUMN,
     "42883": ErrorType.UNDEFINED_FUNCTION,
@@ -38,7 +38,7 @@ def classify_error(query, error): # Convert a psycopg postgresql exception to a 
     message = getattr(diag, "message_primary", None) or str(error)
     position = getattr(diag, "statement_position", None)
 
-    error_type = ERROR_CODES.get(code, ErrorType.OTHER)
+    error_type = ERROR_CODES.get(str(code), ErrorType.OTHER)
     if code == "42883" and "operator does not exist" in message.lower():
         error_type = ErrorType.UNDEFINED_OPERATOR
 

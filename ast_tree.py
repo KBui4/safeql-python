@@ -32,10 +32,10 @@ class SafeQLASTMutator:
 
     def generate_candidate_trees(
         self,
-        current_ast: exp.Expression,
+        current_ast: exp.Expr,
         error_report: Dict[str, Any],
         schema_info: Dict[str, Any]
-    ) -> List[exp.Expression]:
+    ) -> List[exp.Expr]:
         """
         Takes the current AST, the dict returned by Gonzalo's classify_error,
         and Step 2 schema metadata to produce mutated candidate ASTs.
@@ -61,10 +61,10 @@ class SafeQLASTMutator:
 
     def _repair_undefined_column(
         self,
-        ast: exp.Expression,
+        ast: exp.Expr,
         target_token: str,
         schema_info: Dict[str, Any]
-    ) -> List[exp.Expression]:
+    ) -> List[exp.Expr]:
         available_columns = schema_info.get("columns", [])
 
         if not any(
@@ -92,10 +92,10 @@ class SafeQLASTMutator:
 
     def _repair_undefined_table(
         self,
-        ast: exp.Expression,
+        ast: exp.Expr,
         target_token: str,
         schema_info: Dict[str, Any]
-    ) -> List[exp.Expression]:
+    ) -> List[exp.Expr]:
         available_tables = schema_info.get("tables", [])
 
         if not any(
@@ -123,9 +123,9 @@ class SafeQLASTMutator:
 
     def _repair_ambiguous_column(
         self,
-        ast: exp.Expression,
+        ast: exp.Expr,
         target_token: str
-    ) -> List[exp.Expression]:
+    ) -> List[exp.Expr]:
         matching_columns = [
             node
             for node in ast.find_all(exp.Column)
@@ -159,9 +159,9 @@ class SafeQLASTMutator:
 
     def _repair_type_mismatch(
         self,
-        ast: exp.Expression,
+        ast: exp.Expr,
         target_token: str
-    ) -> List[exp.Expression]:
+    ) -> List[exp.Expr]:
         candidates = []
         target_casts = ["TEXT", "INTEGER", "BIGINT", "NUMERIC", "BOOLEAN", "TIMESTAMP"]
 
