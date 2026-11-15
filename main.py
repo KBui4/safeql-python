@@ -1,7 +1,9 @@
+from bfs import bfs
 from configs import get_db_env
 from database import Database
 from error_handler import inspect_query
 from schema_inspector import SchemaInspector
+
 
 def main():
   configs = get_db_env()
@@ -47,6 +49,13 @@ def main():
   print(inspector.get_columns("test"))
   print(inspector.get_values("test", "words"))
 
+
+
+  # ---------- bfs testing -------------
+  bad_query_twoerr = "SELECT wrong_column FROM example"
+  bad_query_miss = "SELECT FROM test"
+  print(bfs(bad_query_twoerr, db, inspector))
+  print(bfs(bad_query_miss, db, inspector))
 
   return
 

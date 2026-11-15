@@ -5,11 +5,14 @@ import math
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fastembed import TextEmbedding
 from sqlglot import exp, parse_one
 
 from ast_tree import SafeQLASTMutator, extract_faulty_token
+from error_handler import classify_error
 
 # Embedding backend
+_embedder = None
 _EMBEDDER_FAILED = False
 
 
@@ -19,8 +22,6 @@ def _embed(text: str) -> List[float]:
         return _lexical_vec(text)
     if _embedder is None:
         try:
-            from fastembed import TextEmbedding
-
             _embedder = TextEmbedding(model_name="BAAI/bge-base-en-v1.5")
         except Exception:
             _EMBEDDER_FAILED = True
@@ -138,6 +139,13 @@ def _refinement_category(error_type: str) -> str:
     }.get(error_type, "unknown")
 
 
+
+
+
+
+
+
+
 # --> Top-K Pruning
 def _multiset_diff(a: List[str], b: List[str]) -> List[str]:
     return list((Counter(a) - Counter(b)).elements())
@@ -187,6 +195,11 @@ def _extract_new_token(
     return None
 
 
+
+
+
+
+
 # --> Type-Based Pruning
 _CMP_OPS = (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE)
 
@@ -199,6 +212,7 @@ _NUMERIC = {
     "decimal",
     "real",
     "double",
+    "double precision",
     "float",
     "float4",
     "float8",
@@ -219,7 +233,17 @@ _STRING = {
     "bpchar",
     "citext",
 }
-_TEMPORAL = {"date", "timestamp", "timestamptz", "time", "timetz"}
+_TEMPORAL = {
+    "date",
+    "timestamp",
+    "timestamptz",
+    "time",
+    "timetz",
+    "time without time zone",
+    "time with time zone",
+    "timestamp without time zone",
+    "timestamp with time zone",
+}
 _BOOL = {"bool", "boolean"}
 
 
@@ -405,40 +429,25 @@ def prune_refinements(
     return candidates
 
 
-_SQLSTATE_TO_ERROR = {
-    "42703": "UNDEFINED_COLUMN",
-    "42P01": "UNDEFINED_TABLE",
-    "42702": "AMBIGUOUS_COLUMN",
-    "42804": "DATATYPE_MISMATCH",
-    "42883": "UNDEFINED_OPERATOR",
-    "42601": "SYNTAX_ERROR",
-}
-
-
-def _classify_psycopg_error(e: Exception, sql: str) -> Dict[str, Any]:
-    sqlstate = getattr(e, "sqlstate", None)
-    diag = getattr(e, "diag", None)
-    msg = (getattr(diag, "message_primary", None) if diag else None) or str(e)
-    detail = getattr(diag, "message_detail", None) if diag else None
-    raw_pos = getattr(diag, "statement_position", None) if diag else None
-    try:
-        pos = int(raw_pos) if raw_pos else None
-    except (TypeError, ValueError):
-        pos = None
+def schema_info_from_inspector(inspector) -> Dict[str, Any]:
+    tables: List[str] = []
+    columns: List[str] = []
+    column_types: Dict[str, str] = {}
+    for table, cols in inspector.get_schema().items():
+        tables.append(table)
+        for col in cols:
+            columns.append(col["name"])
+            column_types[col["name"].lower()] = col["data_type"]
+            column_types[f"{table}.{col['name']}".lower()] = col["data_type"]
     return {
-        "error_type": _SQLSTATE_TO_ERROR.get(sqlstate, "UNKNOWN"),
-        "sqlstate": sqlstate,
-        "message": msg,
-        "detail": detail,
-        "position": pos,
-        "query": sql,
+        "tables": tables,
+        "columns": columns,
+        "column_types": column_types,
+        "function_signatures": {},
     }
 
 
 def _run_query(db, sql: str) -> Tuple[Optional[List[Tuple]], Optional[Dict[str, Any]]]:
-    if hasattr(db, "execute_with_diagnostics"):
-        return db.execute_with_diagnostics(sql)
-
     try:
         rows = db.execute(sql)
         if isinstance(rows, list) and len(rows) == 0:
@@ -450,12 +459,13 @@ def _run_query(db, sql: str) -> Tuple[Optional[List[Tuple]], Optional[Dict[str, 
             }
         return rows, None
     except Exception as e:
-        return None, _classify_psycopg_error(e, sql)
+        return None, classify_error(sql, e)
 
 
 def bfs(
     query: str,
     db,
+    inspector = None,
     mutator: Optional[SafeQLASTMutator] = None,
     schema_info: Optional[Dict[str, Any]] = None,
     alpha: float = 0.35,
@@ -465,17 +475,11 @@ def bfs(
 
     
     mutator = mutator or SafeQLASTMutator(dialect="postgres")
-    schema_info = {
-        "tables":   ["Users", "Posts"],
-        "columns":  ["ID", "name", "age", "UserID", "txt", "len", "time"],
-        "column_types": {                 # this is Γ
-            "id": "int",   "name": "text",  "age": "int",
-            "userid": "int", "txt": "text", "len": "int", "time": "date",
-        },
-        "function_signatures": {           # optional
-            "sum": ["numeric"], "count": ["any"], "date_part": ["text", "timestamp"],
-        },
-    } ### TODO: change from hardcoded values to schema fetched by the Postgres database
+    if schema_info is None:
+        if inspector is None:
+            raise ValueError("bfs requires either `inspector` or `schema_info`")
+        schema_info = schema_info_from_inspector(inspector)
+
 
     try:
         root_ast = parse_one(query, dialect=mutator.dialect)
@@ -504,7 +508,7 @@ def bfs(
         if err is None:  # nearest safe query found
             return rows, current_sql, None
 
-        if err.get("error_type") in ("SYNTAX_ERROR", "UNKNOWN"):
+        if err.get("error_type") in ("SYNTAX_ERROR", "OTHER"):
             continue
 
         try:
