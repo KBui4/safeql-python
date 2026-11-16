@@ -1,0 +1,10 @@
+{
+  "query": "SELECT wrong_column FROM test;",
+  "status": "ERROR",
+  "error_type": "UNDEFINED_COLUMN",
+  "sqlstate": "42703",
+  "message": "column \"wrong_column\" does not exist",
+  "position": 8,
+  "hint": null,
+  "row_count": null
+}
