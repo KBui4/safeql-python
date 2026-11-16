@@ -26,7 +26,7 @@ def extract_faulty_token(report: dict) -> Optional[str]:
 
     return None
 
-class SafeQLASTMutator:
+class ASTMutator:
     def __init__(self, dialect: str = "postgres"):
         self.dialect = dialect
 
