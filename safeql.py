@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from fastembed import TextEmbedding
 from sqlglot import exp, parse_one
 
-from ast_tree import SafeQLASTMutator, extract_faulty_token
+from ast_tree import ASTMutator, extract_faulty_token
 from error_handler import classify_error
 
 # Embedding backend
@@ -37,12 +37,14 @@ def _lexical_vec(text: str, dim: int = 64) -> List[float]:
 
 
 def _cosine_distance(a: List[float], b: List[float]) -> float:
+    if len(a) != len(b) or not a:
+        return float("inf")
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     if na == 0.0 or nb == 0.0:
         return 1.0
     dot = sum(x * y for x, y in zip(a, b))
-    return 1.0 - dot / (na * nb)
+    return max(0.0, min(2.0, 1.0 - dot / (na * nb)))
 
 
 def _token_sequence(ast: exp.Expr) -> List[str]:
@@ -139,19 +141,12 @@ def _refinement_category(error_type: str) -> str:
     }.get(error_type, "unknown")
 
 
-
-
-
-
-
-
-
-# --> Top-K Pruning
+# For Top-K Pruning
 def _multiset_diff(a: List[str], b: List[str]) -> List[str]:
     return list((Counter(a) - Counter(b)).elements())
 
 
-# --> Top-K Pruning
+# For Top-K Pruning
 def _extract_new_token(
     original_ast: exp.Expr, candidate: exp.Expr, error_type: str
 ) -> Optional[str]:
@@ -195,12 +190,7 @@ def _extract_new_token(
     return None
 
 
-
-
-
-
-
-# --> Type-Based Pruning
+# For Type-Based Pruning
 _CMP_OPS = (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE)
 
 _NUMERIC = {
@@ -247,7 +237,7 @@ _TEMPORAL = {
 _BOOL = {"bool", "boolean"}
 
 
-# --> Type-Based Pruning
+# For Type-Based Pruning
 def _type_family(t: Optional[str]) -> str:
     if t is None:
         return "unknown"
@@ -263,17 +253,21 @@ def _type_family(t: Optional[str]) -> str:
     return "other"
 
 
-# --> Type-Based Pruning
-def _types_compatible(a: Optional[str], b: Optional[str]) -> bool:
+# For Type-Based Pruning
+def _types_compatible(a, b):
     if a is None or b is None:
         return True
-    fa, fb = _type_family(a), _type_family(b)
-    if "unknown" in (fa, fb) or fa == fb:
+    fa = _type_family(a)
+    fb = _type_family(b)
+    if fa == fb:
         return True
-    return {fa, fb} <= {"numeric", "string", "bool"}
+    numeric_types = {"numeric", "int", "float"}
+    if fa in numeric_types and fb in numeric_types:
+        return True
+    return False
 
 
-# --> Type-Based Pruning
+# For Type-Based Pruning
 def _literal_type(lit: exp.Literal) -> Optional[str]:
     if lit.is_string:
         return "text"
@@ -283,7 +277,7 @@ def _literal_type(lit: exp.Literal) -> Optional[str]:
     return None
 
 
-# --> Type-Based Pruning
+# For Type-Based Pruning
 def _column_type(col: exp.Column, schema_info: Dict[str, Any]) -> Optional[str]:
     parent = col.parent
     if isinstance(parent, exp.Cast):
@@ -302,7 +296,7 @@ def _column_type(col: exp.Column, schema_info: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-# --> Type-Based Pruning
+# For Type-Based Pruning
 def _type_check_candidate(
     candidate: exp.Expr, target_token: str, schema_info: Dict[str, Any]
 ) -> bool:
@@ -354,9 +348,7 @@ def _type_check_candidate(
     return True
 
 
-### Type-Based Pruning (main function)
-
-
+# Type-Based Pruning (main function)
 def type_based_pruning(
     candidates: List[exp.Expr],
     error_type: str,
@@ -370,9 +362,7 @@ def type_based_pruning(
     ]
 
 
-### Top-K Pruning (main function)
-
-
+# Top-K Pruning (main function)
 def top_k_pruning(
     candidates: List[exp.Expr],
     error_type: str,
@@ -461,12 +451,12 @@ def _run_query(db, sql: str) -> Tuple[Optional[List[Tuple]], Optional[Dict[str, 
     except Exception as e:
         return None, classify_error(sql, e)
 
-
-def bfs(
+# BFS search
+def safeql(
     query: str,
     db,
     inspector = None,
-    mutator: Optional[SafeQLASTMutator] = None,
+    mutator: Optional[ASTMutator] = None,
     schema_info: Optional[Dict[str, Any]] = None,
     alpha: float = 0.35,
     K: int = 3,
@@ -474,7 +464,7 @@ def bfs(
 ) -> Tuple[Optional[List[Tuple]], Optional[str], Optional[str]]:
 
     
-    mutator = mutator or SafeQLASTMutator(dialect="postgres")
+    mutator = mutator or ASTMutator(dialect="postgres")
     if schema_info is None:
         if inspector is None:
             raise ValueError("bfs requires either `inspector` or `schema_info`")
